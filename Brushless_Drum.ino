@@ -22,18 +22,18 @@
 
 float Targetgain, Targetplus, TargetCV, Vigourgain, VigourCV, Vigourplus, Boinggain, BoingCV, Boingplus;
 
-float Positionangle, PositionVigour, PositionBoing, Torqueangle, TorqueVigour, TorqueBoing;
+float Positionangle, PositionVigour, PositionBoing, Torqueangle, TorqueVigour, TorqueBoing, Speedangle, SpeedVigour, SpeedBoing;
 
 float TGP, TGCV, TGG, VIP, VICV, VIG, BOP, BOCV, BOG;
 
-float pvig, pbo, tvig, tbo;
+float pvig, pbo, tvig, tbo, svig, sbo;
 
-int var, val, ang, torang;
+int var, val, ang, torang, sang;
 
 float pi = 3.141592653589793238;
-float rada, Trada;
+float rada, Trada, Srada;
 int initial = 0;
-
+int Checkstate = 0;
 
 MagneticSensorI2C sensor = MagneticSensorI2C(AS5048_I2C);
 BLDCMotor motor = BLDCMotor(11);
@@ -60,23 +60,7 @@ void setup() {
   
   motor.linkDriver(&driver);
   
-  motor.PID_velocity.P = 0.2;
-  motor.PID_velocity.I = 20;
-  motor.PID_velocity.D = 0.001;
-  // jerk control using voltage voltage ramp
-  // default value is 300 volts per sec  ~ 0.3V per millisecond
-  motor.PID_velocity.output_ramp = 1000;
 
-  // velocity low pass filtering
-  // default 5ms - try different values to see what is the best. 
-  // the lower the less filtered
-  motor.LPF_velocity.Tf = 0.01;
-
-  // angle P controller -  default P=20
-  motor.P_angle.P = 20;
-
-  //  maximal velocity of the position control
-  // default 20
   motor.velocity_limit = 8;
   // default voltage_power_supply
   motor.voltage_limit = 12;
@@ -106,7 +90,8 @@ void setup() {
 
 void loop()
 {
-checkcasses();
+  
+    checkcasses();
 }
 
 
@@ -143,22 +128,10 @@ switch (var) {
  Torque();
     break;
     case 3:
-   Serial.println("-------Speed Mode---------");
-   motor.loopFOC();
-
-  
-  motor.move(0.5);
-  
-  command.run();
+ Speed();
     break;
     case 4:
-   Serial.println("-------Tap Mode---------");
-   motor.loopFOC();
-
-  
-  motor.move(0.1);
-  
-  command.run();
+ TapFunction();
     break;
   default:
     break;
@@ -171,10 +144,43 @@ switch (var) {
 
 void Position()
 {
+ /* if(Checkstate == 0)
+  {
+  sensor.init();
+  
+  driver.voltage_power_supply = 12;
+  driver.init();
+  
+  motor.linkDriver(&driver);
+  
 
+  motor.velocity_limit = 8;
+  // default voltage_power_supply
+  motor.voltage_limit = 12;
+  
+  motor.controller = MotionControlType::angle;
+  // init motor hardware
+  motor.init();
+
+  motor.linkSensor(&sensor);
+  motor.initFOC();
+  
+  // add target command T
+  command.add('T', doTarget, "target angle");
+  command.add('L', doLimitVolt, "voltage limit");
+  command.add('V', doLimitVelocity, "velocity limit");
+
+  motor.move(initial);
+  Serial.println("Motor ready!");
+  Serial.println("Sensor ready!");
+  
+  Serial.println("Set target position [rad]");
+  _delay(1000);
+  Checkstate = 1;
+  }
+  */
   if(digitalRead(Gate)!=1)
   {
-    
   motor.controller = MotionControlType::angle;
   
   readcal();
@@ -192,16 +198,15 @@ void Position()
   
   motor.loopFOC(); 
   rada = ang*pi/180;
-  motor.move(rada);  
+  motor.move(rada);
 }
-
 }
 
 
 
 void Torque()
 {
-   if(digitalRead(Gate)!=1)
+  if(digitalRead(Gate)!=1)
   {
     
   motor.controller = MotionControlType::angle_openloop;
@@ -209,7 +214,7 @@ void Torque()
   readcal();
 
   Torqueangle = TGP + (TGCV * TGG);
-  torang = map(Torqueangle, 0, 190,0 , 360);
+  torang = map(Torqueangle, 0, 190,0, 360);
 
   TorqueVigour = VIP + (VICV * VIG);
   tvig = map(TorqueVigour, 0, 190,0 , 8);
@@ -219,12 +224,6 @@ void Torque()
   
   motor.velocity_limit = tvig;
   motor.voltage_limit = tbo; 
-  
-  Serial.print("Tboing: ");
-  Serial.print(tbo);
-  Serial.print("     TVig: ");
-  Serial.print(tvig);
-  Serial.println();
 
   motor.loopFOC(); 
   Trada = torang*pi/180;
@@ -233,6 +232,73 @@ void Torque()
   
 }
 
+}
+
+
+void Speed()
+{
+
+  Checkstate = 0;
+  
+  if(digitalRead(Gate)!=1)
+  {
+    
+  motor.controller = MotionControlType::velocity_openloop;
+  
+  readcal();
+
+  Speedangle = TGP + (TGCV * TGG);
+  sang = map(Speedangle, 0, 190,-720, 720);
+
+  SpeedVigour = VIP + (VICV * VIG);
+  svig = map(SpeedVigour, 0, 190,0 , 12);
+
+  SpeedBoing = BOP + (BOCV * BOG);
+  sbo = fmap(SpeedBoing, 0, 190, 0.0 , 2);
+
+  motor.voltage_limit = svig;
+  motor.current_limit = sbo; 
+  
+  Serial.print("Tboing: ");
+  Serial.print(sang);
+  Serial.print("     TVig: ");
+  Serial.print(svig);
+  Serial.println();
+
+  motor.loopFOC(); 
+  Srada = sang*pi/180;
+
+  motor.target= Srada;
+  
+}
+
+}
+
+void TapFunction()
+{
+  motor.controller = MotionControlType::angle;
+  
+  readcal();
+
+  Positionangle = TGP + (TGCV * TGG);
+  ang = map(Positionangle, 0, 190,0 , 360);
+
+  PositionVigour = VIP + (VICV * VIG);
+  pvig = map(PositionVigour, 0, 190,0 , 20);
+
+  PositionBoing = BOP + (BOCV * BOG);
+  pbo = fmap(PositionBoing, 0, 190, 0.0 , 1.1);
+  motor.P_angle.P = pvig;
+  motor.PID_velocity.P = pbo;  
+  
+  motor.loopFOC(); 
+  rada = ang*pi/180;
+  motor.move(0);
+
+  if(digitalRead(Gate)==1)
+  {
+    motor.move(rada);
+  }
 }
 
 
